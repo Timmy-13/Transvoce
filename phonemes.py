@@ -1,65 +1,56 @@
 import torch
 import torchaudio
 import torchaudio.transforms as T
-from torchaudio.pipelines import WAV2VEC2_ASR_LARGE_960H
+from torchaudio.models import wav2vec2
+from torchaudio.pipelines import WAV2VEC2_LARGE
 import ssl
-
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# Load Pre-trained Wav2Vec2 Model
-bundle = WAV2VEC2_ASR_LARGE_960H
-model = bundle.get_model()
+# Step 1: Load Pre-trained Wav2Vec2 Model (or DeepSpeech)
+model = WAV2VEC2_LARGE.get_model()
 
-# Load the vocabulary (characters/phonemes from Wav2Vec2)
-vocab = bundle.get_labels()
-
-# Extended ARPAbet phoneme vocabulary
-phoneme_vocab = [
-    "AA", "AE", "AH", "AO", "AW", "AY", "B", "CH", "D", "DH", "EH", "ER", "EY",
-    "F", "G", "HH", "IH", "IY", "JH", "K", "L", "M", "N", "NG", "OW", "OY", "P",
-    "R", "S", "SH", "T", "TH", "UH", "UW", "V", "W", "Y", "Z", "ZH"
-]
-
+# Step 2: Load and preprocess the audio file
 def load_audio(file_path):
     waveform, sample_rate = torchaudio.load(file_path)
     return waveform, sample_rate
 
+# Preprocess the audio (convert to the appropriate sample rate for the model)
 def preprocess_audio(waveform, sample_rate, target_sample_rate=16000):
     if sample_rate != target_sample_rate:
-        waveform = T.Resample(orig_freq=sample_rate, new_freq=target_sample_rate)(waveform)
+        resample_transform = T.Resample(orig_freq=sample_rate, new_freq=target_sample_rate)
+        waveform = resample_transform(waveform)
     return waveform
 
+# Step 3: Pass through the model to get the prediction
 def phoneme_recognition(waveform, model):
+    # Ensure model is in eval mode
     model.eval()
-    waveform = waveform.squeeze(0).unsqueeze(0)  # Ensure correct shape [1, T]
+
+    # Squeeze the waveform to remove the extra dimension (if needed)
+    waveform = waveform.squeeze(0)  # Remove the batch dimension if it's 1
+
+    # Ensure the waveform is now a 2D tensor with shape (1, time_steps)
+    if len(waveform.shape) == 1:
+        waveform = waveform.unsqueeze(0)  # Add batch dimension back
 
     with torch.no_grad():
-        emissions, _ = model(waveform)  # Output shape: [1, time_steps, vocab_size]
+        # Forward pass through the model
+        emissions, _ = model(waveform)
+    
+    # We will now decode the model's output to phonemes or words (depending on your setup)
+    return emissions
 
-    return emissions.squeeze(0)  # Remove batch dim → [time_steps, vocab_size]
+# Assuming you have a list of phonemes or words for the model
+phoneme_vocab = ["aa", "ae", "ah", "ao", "aw", "ay", "b", "ch", "d", "dh", "eh", "el", "en", "er", "ey", "f", "g", "h", "hh", "ih", "iy", "jh", "k", "l", "m", "n", "ng", "ow", "oy", "p", "r", "s", "sh", "t", "th", "uh", "uw", "v", "w", "y", "z", "zh"]
 
-def decode_emissions(emissions, vocab):
-    predicted_ids = emissions.argmax(dim=-1)  # Get max prob index at each time step
-    predicted_tokens = [vocab[idx.item()] for idx in predicted_ids]
-
-    # Remove consecutive duplicates and blank tokens ("_")
-    phonemes = []
-    prev = None
-    for token in predicted_tokens:
-        if token != prev and token != "_":
-            phonemes.append(token)
-        prev = token
-
-    return phonemes
-
-# Load and process audio
+# Load an example audio file (adjust the file path)
 audio_file = 'path_to_audio.wav'
+
+# Step 4: Process and Predict
 waveform, sample_rate = load_audio(audio_file)
 waveform = preprocess_audio(waveform, sample_rate)
 
-print(waveform.shape)
-# Predict and decode phonemes
+# Run phoneme prediction
 emissions = phoneme_recognition(waveform, model)
-phonemes = decode_emissions(emissions, vocab)
-print(len(phonemes))
-print("Predicted Phonemes:", phonemes)
+
+print("Predicted Phonemes:", emissions.shape)
