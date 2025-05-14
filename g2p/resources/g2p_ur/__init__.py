@@ -1,0 +1,1 @@
+from .G2p import UrduG2P as G2p
