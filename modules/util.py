@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import torchaudio.transforms as T
 import torch
 from .HypParams import *
-
+from torch.nn.functional import mse_loss
 
 def exists(val):
     return val is not None
@@ -87,25 +87,21 @@ def clean_text_en(text):
     return text
 
 def clean_text_ur(text):
-
-    text = text.replace("’", "'")
-
-    # Remove digits
-    text = re.sub(r'\d+', '', text)
-
-    # Remove all characters except letters, whitespace, and apostrophes
-    text = re.sub(r"[^a-zA-Z\s']", '', text)
-
-    # Remove apostrophes not between two letters
-    text = re.sub(r"(?<![a-zA-Z])'(?![a-zA-Z])", '', text)  # lone apostrophes
-    text = re.sub(r"(?<![a-zA-Z])'|'(?![a-zA-Z])", '', text)  # leading or trailing
-
-    # Collapse multiple spaces
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
+    text = re.sub(r'[۔،٪]', '', text)# Remove Urdu special characters
+    words = re.findall(r'[\u0600-\u06FF]+', text)  # Keep Urdu letters only
+    return ' '.join(words)
 
 # Dummy MUSE embeddings (to be replaced with real ones later)
 def get_muse_embeddings(transcript):
     words = transcript.strip().split()
     n = len(words)
     return torch.zeros(n, 300), n  # (n_words, 300-dim)
+
+
+# Compute MUSE loss
+def compute_muse_loss(model_output, muse_embeddings):
+    model_output = model_output.squeeze(0)  # (Time, D)
+    muse_embeddings = muse_embeddings.to(model_output.device)
+    muse_embeddings = muse_embeddings.squeeze(0)
+    n = min(model_output.shape[0], muse_embeddings.shape[0])
+    return mse_loss(model_output[:n], muse_embeddings[:n])  # Eqn from image
